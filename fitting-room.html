@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TVFR - Virtual Fitting Room</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="fitting-room-container">
+        <h1>Your Virtual Fitting Room</h1>
+        <div id="avatar-container">
+            <!-- Placeholder for 3D avatar (expand with Three.js or similar) -->
+            <img id="avatar-preview" src="" alt="Your Avatar">
+        </div>
+        <div class="controls">
+            <button onclick="toggleMode()">Switch to Free Simulation</button>
+            <button onclick="window.location.href='options.html'">Close</button>
+        </div>
+        <p id="mode-status">Mode: Auto-Modeling</p>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
