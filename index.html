@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TVFR - The Virtual Fitting Room</title>
+    <!-- Load face-api.js for facial recognition -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.9.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <!-- Load Three.js for 3D simulation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        body {
+            background: #f0f0f0;
+            color: #333;
+            text-align: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        .section {
+            display: none;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px;
+            transition: opacity 0.3s;
+        }
+        .section.active {
+            display: block;
+            opacity: 1;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        p {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .pulse-button {
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        input, select, button {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button {
+            background: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #video, #avatar-container {
+            width: 100%;
+            max-width: 500px;
+            height: 400px;
+            margin: 20px auto;
+            background: #ddd;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        footer {
+            position: fixed;
+            bottom: 10px;
+            width: 100%;
+            left: 0;
+            padding: 10px;
+        }
+        @media (max-width: 600px) {
+            h1 { font-size: 22px; }
+            p, input, select, button { font-size: 14px; }
+            .pulse-button { padding: 10px 20px; }
+            #video, #avatar-container { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Intro Section -->
+    <div id="intro" class="section active">
+        <h1>TVFR - The Virtual Fitting Room</h1>
+        <p>Create a 3D avatar with your real face and try on clothes in a virtual simulation game!</p>
+        <button class="pulse-button" onclick="showSection('options')">Tap to Enter</button>
+    </div>
+
+    <!-- Options Section -->
+    <div id="options" class="section">
+        <h1>Create Your Avatar</h1>
+        <form id="avatar-form">
+            <label><input type="checkbox" id="face-scan" onchange="startFaceScan()"> Scan Face</label>
+            <video id="video" autoplay muted style="display: none;"></video>
+            <input type="number" placeholder="Height (cm)" required>
+            <input type="number" placeholder="Weight (kg)" required>
+            <select required>
+                <option value="">Select Gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+            </select>
+            <input type="text" placeholder="Skin Color (e.g., light, dark)" required>
+            <input type="text" placeholder="Body Shape (e.g., slim, curvy)" required>
+            <input type="file" id="clothing-upload" accept="image/*,video/*" required>
+            <button type="submit">Tap to Enter Fitting Room</button>
+            <button type="button" onclick="document.getElementById('avatar-form').reset(); stopFaceScan()">Clear Page</button>
+        </form>
+    </div>
+
+    <!-- Fitting Room Section -->
+    <div id="fitting-room" class="section">
+        <h1>Your Virtual Fitting Room</h1>
+        <div id="avatar-container"></div>
+        <div class="controls">
+            <button onclick="toggleMode()">Free Simulation</button>
+            <button onclick="showSection('options')">Close</button>
+        </div>
+        <p id="mode-status">Mode: Auto-Modeling</p>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>Contact: <a href="mailto:cosmoscoderr@gmail.com">cosmoscoderr@gmail.com</a></p>
+    </footer>
+
+    <script>
+        // Load face-api.js models
+        Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models'),
+            faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models')
+        ]).then(() => console.log('Face-api models loaded'));
+
+        // Section Navigation
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            document.getElementById(sectionId).classList.add('active');
+            if (sectionId === 'fitting-room') init3D(); // Start 3D when entering fitting room
+        }
+
+        // Facial Recognition
+        let stream;
+        async function startFaceScan() {
+            const video = document.getElementById('video');
+            if (document.getElementById('face-scan').checked) {
+                video.style.display = 'block';
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+
+                video.onloadedmetadata = async () => {
+                    const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+                    if (detections) {
+                        console.log('Face detected:', detections);
+                        localStorage.setItem('faceData', JSON.stringify(detections));
+                    }
+                };
+            } else {
+                stopFaceScan();
+            }
+        }
+
+        function stopFaceScan() {
+            const video = document.getElementById('video');
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.style.display = 'none';
+            }
+        }
+
+        // Form Submission
+        document.getElementById('avatar-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            // Collect Data
+            const formData = {
+                faceScan: document.getElementById('face-scan').checked,
+                height: document.querySelector('input[placeholder="Height (cm)"]').value,
+                weight: document.querySelector('input[placeholder="Weight (kg)"]').value,
+                gender: document.querySelector('select').value,
+                skinColor: document.querySelector('input[placeholder="Skin Color"]').value,
+                bodyShape: document.querySelector('input[placeholder="Body Shape"]').value,
+                clothing: document.getElementById('clothing-upload').files[0]
+            };
+            localStorage.setItem('avatarData', JSON.stringify(formData));
+            stopFaceScan(); // Stop video stream before moving
+            showSection('fitting-room');
+        });
+
+        // 3D Simulation
+        let scene, camera, renderer, avatar, isFreeMode = false;
+        function init3D() {
+            const container = document.getElementById('avatar-container');
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            // Basic Avatar (Cube as placeholder - replace with real model)
+            const geometry = new THREE.BoxGeometry(1, 2, 0.5);
+            const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            avatar = new THREE.Mesh(geometry, material);
+            scene.add(avatar);
+
+            // Clothing Texture (from upload)
+            const formData = JSON.parse(localStorage.getItem('avatarData'));
+            if (formData.clothing) {
+                const texture = new THREE.TextureLoader().load(URL.createObjectURL(formData.clothing));
+                avatar.material.map = texture;
+                avatar.material.needsUpdate = true;
+            }
+
+            camera.position.z = 5;
+            animate3D();
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+            if (isFreeMode) {
+                avatar.rotation.y += 0.05; // Auto-rotate in Free Mode
+            }
+            renderer.render(scene, camera);
+        }
+
+        function toggleMode() {
+            isFreeMode = !isFreeMode;
+            document.getElementById('mode-status').textContent = isFreeMode ? 'Mode: Free Simulation' : 'Mode: Auto-Modeling';
+        }
+    </script>
+</body>
+</html>
